@@ -43,9 +43,9 @@ sudoku-solver/
    ```
 
 2. **Compile the code:**
-   Run the following command from the root directory to compile the source code into an executable:
+   Run the following command from the root directory to compile the source code into an executable (using the `-O3` flag is highly recommended to enable compiler optimizations that maximize solver performance):
    ```bash
-   gcc -o sudoku.exe src/main.c src/sudoku.c src/solver.c src/server.c src/gui_html.c -lws2_32
+   gcc -O3 -o sudoku.exe src/main.c src/sudoku.c src/solver.c src/server.c src/gui_html.c -lws2_32
    ```
 
 3. **Run the application:**

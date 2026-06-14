@@ -187,6 +187,29 @@ static bool backtrackSolve(int grid[GRID_SIZE][GRID_SIZE], SolveResult *result) 
 }
 
 /*
+ * isGridConsistent - Check if the initial grid does not violate Sudoku constraints.
+ * This checks that no row, column, or 3x3 box contains duplicate values.
+ */
+static bool isGridConsistent(int grid[GRID_SIZE][GRID_SIZE]) {
+    for (int r = 0; r < GRID_SIZE; r++) {
+        for (int c = 0; c < GRID_SIZE; c++) {
+            int v = grid[r][c];
+
+            if (v == EMPTY_CELL) continue;
+            if (v < 1 || v > 9) return false;
+
+            /* Temporarily clear the cell to check safety of its value */
+            grid[r][c] = EMPTY_CELL;
+            bool ok = isSafe(grid, r, c, v);
+            grid[r][c] = v;
+
+            if (!ok) return false;
+        }
+    }
+    return true;
+}
+
+/*
  * solveWithBacktracking - Public interface for backtracking solver.
  * Copies the grid, runs the solver, and returns comprehensive results.
  */
@@ -196,6 +219,11 @@ SolveResult solveWithBacktracking(int grid[GRID_SIZE][GRID_SIZE]) {
 
     /* Work on a copy so we don't modify the original */
     copyGrid(result.grid, grid);
+
+    if (!isGridConsistent(result.grid)) {
+        result.solved = false;
+        return result;
+    }
 
     /* Measure execution time */
     double startTime = getTimeMs();
@@ -211,180 +239,164 @@ SolveResult solveWithBacktracking(int grid[GRID_SIZE][GRID_SIZE]) {
  * ======================================================================= */
 
 /*
- * getCandidates - Compute valid candidates for a cell.
- *
- * Checks which numbers 1-9 can be legally placed at (row, col)
- * by testing the row, column, and box constraints.
- *
- * Parameters:
- *   grid       - Current grid state
- *   row, col   - Cell to check
- *   candidates - Output array of valid numbers
- *
- * Returns: Number of valid candidates found.
+ * getCandidateCountFast - Count the remaining valid candidates for a cell
+ * by scanning the row, column, and sub-box once. This is much faster
+ * than calling isSafe 9 times.
  */
-static int getCandidates(int grid[GRID_SIZE][GRID_SIZE], int row, int col,
-                         int candidates[9]) {
-    int count = 0;
-    for (int num = 1; num <= 9; num++) {
-        if (isSafe(grid, row, col, num)) {
-            candidates[count++] = num;
+static int getCandidateCountFast(int grid[GRID_SIZE][GRID_SIZE], int row, int col) {
+    int mask = 0;
+
+    // Row check
+    for (int c = 0; c < GRID_SIZE; c++) {
+        mask |= (1 << grid[row][c]);
+    }
+
+    // Column check
+    for (int r = 0; r < GRID_SIZE; r++) {
+        mask |= (1 << grid[r][col]);
+    }
+
+    // Box check
+    int boxStartRow = (row / BOX_SIZE) * BOX_SIZE;
+    int boxStartCol = (col / BOX_SIZE) * BOX_SIZE;
+    for (int r = boxStartRow; r < boxStartRow + BOX_SIZE; r++) {
+        for (int c = boxStartCol; c < boxStartCol + BOX_SIZE; c++) {
+            mask |= (1 << grid[r][c]);
         }
     }
-    return count;
+
+    return 9 - __builtin_popcount(mask & 0x3FE);
 }
 
 /*
  * findMRVCell - Find the empty cell with Minimum Remaining Values.
- *
- * MRV Heuristic (also called "Most Constrained Variable"):
- *   Pick the empty cell that has the FEWEST valid candidates.
- *   This is a key optimization because:
- *     - Cells with fewer options are more likely to fail quickly
- *     - Failing quickly means we prune more of the search tree
- *     - In the best case, a cell with 1 candidate is a forced move
- *
- * Example:
- *   Cell (2,3) has candidates: {5}        → 1 candidate
- *   Cell (4,7) has candidates: {1,3,7,9}  → 4 candidates
- *   Cell (0,1) has candidates: {2,8}      → 2 candidates
- *   MRV picks cell (2,3) because it's most constrained.
- *
- * Parameters:
- *   grid       - Current grid state
- *   outRow/Col - Output: position of the MRV cell
- *
- * Returns: true if an empty cell was found, false if grid is complete.
+ * Also populates the candidates array and count for that cell to avoid double scan.
  */
-static bool findMRVCell(int grid[GRID_SIZE][GRID_SIZE], int *outRow, int *outCol) {
+static bool findMRVCell(int grid[GRID_SIZE][GRID_SIZE], int *outRow, int *outCol,
+                        int outCandidates[9], int *outCount) {
     int minCandidates = 10;  /* Start with impossibly high value */
     *outRow = -1;
     *outCol = -1;
+    *outCount = 0;
+    int bestMask = 0;
 
     for (int r = 0; r < GRID_SIZE; r++) {
         for (int c = 0; c < GRID_SIZE; c++) {
             if (grid[r][c] == EMPTY_CELL) {
-                int candidates[9];
-                int count = getCandidates(grid, r, c, candidates);
+                int mask = 0;
+
+                // Row check
+                for (int col = 0; col < GRID_SIZE; col++) {
+                    mask |= (1 << grid[r][col]);
+                }
+
+                // Column check
+                for (int row = 0; row < GRID_SIZE; row++) {
+                    mask |= (1 << grid[row][c]);
+                }
+
+                // Box check
+                int boxStartRow = (r / BOX_SIZE) * BOX_SIZE;
+                int boxStartCol = (c / BOX_SIZE) * BOX_SIZE;
+                for (int br = boxStartRow; br < boxStartRow + BOX_SIZE; br++) {
+                    for (int bc = boxStartCol; bc < boxStartCol + BOX_SIZE; bc++) {
+                        mask |= (1 << grid[br][bc]);
+                    }
+                }
+
+                int count = 9 - __builtin_popcount(mask & 0x3FE);
 
                 if (count < minCandidates) {
                     minCandidates = count;
                     *outRow = r;
                     *outCol = c;
+                    bestMask = mask;
 
-                    /* Optimization: if only 1 candidate, can't do better */
-                    if (count == 1) return true;
+                    /* Optimization: if 0 or 1 candidate, can't do better */
+                    if (count <= 1) goto found;
                 }
             }
         }
     }
 
-    return (*outRow != -1);
+found:
+    if (*outRow != -1) {
+        int count = 0;
+        for (int num = 1; num <= 9; num++) {
+            if (!(bestMask & (1 << num))) {
+                outCandidates[count++] = num;
+            }
+        }
+        *outCount = count;
+        return true;
+    }
+    return false;
 }
 
 /*
- * forwardCheck - Verify that no empty cell has zero valid candidates.
- *
- * Forward Checking is a lookahead technique:
- *   After placing a number, we check ALL remaining empty cells.
- *   If ANY cell has zero valid candidates, the current state is a dead end.
- *   We can prune this entire branch WITHOUT recursing further.
- *
- * Why this works:
- *   Without forward checking, we'd continue filling cells until we reach
- *   the problematic cell, potentially making many more recursive calls.
- *   Forward checking detects the dead end immediately.
- *
- * Example:
- *   We place 7 at (3,5). This removes 7 from the candidates of:
- *     - All cells in row 3
- *     - All cells in column 5
- *     - All cells in box (3,3)-(5,5)
- *   If cell (3,8) previously had candidates {7}, it now has NONE.
- *   Forward checking catches this → prune immediately.
- *
- * Returns: true if all empty cells have at least 1 candidate, false otherwise.
+ * forwardCheck - Verify that no empty cell in the same row, column, or sub-box
+ * has zero valid candidates after placing a number at (row, col).
+ * This is much faster than checking the entire grid.
  */
-static bool forwardCheck(int grid[GRID_SIZE][GRID_SIZE]) {
+static bool forwardCheck(int grid[GRID_SIZE][GRID_SIZE], int row, int col) {
+    // 1. Check same row
+    for (int c = 0; c < GRID_SIZE; c++) {
+        if (c != col && grid[row][c] == EMPTY_CELL) {
+            if (getCandidateCountFast(grid, row, c) == 0) {
+                return false;
+            }
+        }
+    }
+
+    // 2. Check same column
     for (int r = 0; r < GRID_SIZE; r++) {
-        for (int c = 0; c < GRID_SIZE; c++) {
-            if (grid[r][c] == EMPTY_CELL) {
-                /* Check if this cell has any valid candidates */
-                bool hasCandidate = false;
-                for (int num = 1; num <= 9 && !hasCandidate; num++) {
-                    if (isSafe(grid, r, c, num)) {
-                        hasCandidate = true;
-                    }
-                }
-                if (!hasCandidate) {
-                    return false;  /* Dead end: this cell has NO valid options */
+        if (r != row && grid[r][col] == EMPTY_CELL) {
+            if (getCandidateCountFast(grid, r, col) == 0) {
+                return false;
+            }
+        }
+    }
+
+    // 3. Check same box
+    int boxStartRow = (row / BOX_SIZE) * BOX_SIZE;
+    int boxStartCol = (col / BOX_SIZE) * BOX_SIZE;
+    for (int r = boxStartRow; r < boxStartRow + BOX_SIZE; r++) {
+        for (int c = boxStartCol; c < boxStartCol + BOX_SIZE; c++) {
+            if ((r != row || c != col) && grid[r][c] == EMPTY_CELL) {
+                if (getCandidateCountFast(grid, r, c) == 0) {
+                    return false;
                 }
             }
         }
     }
-    return true;  /* All cells have at least one option */
+
+    return true;  /* All affected empty cells have at least one option */
 }
 
 /*
  * branchAndBoundSolve - Recursive B&B solver (internal).
- *
- * This function combines three optimizations over plain backtracking:
- *
- *   1. MRV CELL SELECTION: Pick the most constrained empty cell (fewest
- *      valid candidates). This makes failures happen sooner → more pruning.
- *
- *   2. BOUNDING CONDITION: If the selected cell has ZERO candidates,
- *      prune immediately. No need to try anything.
- *
- *   3. FORWARD CHECKING: After placing a number, check all remaining empty
- *      cells. If any has zero candidates, prune this branch immediately
- *      instead of recursing deeper into a guaranteed dead end.
- *
- * The search tree visualization:
- *
- *   branchAndBoundSolve(grid)
- *     └─ MRV selects cell (2,3) with candidates {5, 8}
- *        ├─ try 5: place → forwardCheck → PASS → recurse
- *        │  └─ MRV selects cell (4,1) with candidates {3}
- *        │     └─ try 3: place → forwardCheck → FAIL → PRUNE ✂️
- *        │        (cell (4,5) has 0 candidates → dead end detected early!)
- *        │     └─ backtrack from (4,1)
- *        │  └─ backtrack from (2,3)
- *        └─ try 8: place → forwardCheck → PASS → recurse
- *           └─ ... (continues search)
- *
- * Parameters:
- *   grid   - Current grid state (modified in place)
- *   result - Accumulates steps and statistics
- *
- * Returns: true if solved, false if dead end (need to backtrack)
+ * Optimized with MRV, fast candidate checks, and localized forward checking.
  */
 static bool branchAndBoundSolve(int grid[GRID_SIZE][GRID_SIZE], SolveResult *result) {
     /* Count this recursive call */
     result->recursiveCalls++;
 
-    /* Step 1: Find the empty cell with minimum remaining values (MRV) */
-    int row, col;
-    if (!findMRVCell(grid, &row, &col)) {
+    /* Step 1: Find the empty cell with MRV and get its candidates */
+    int row, col, candidateCount;
+    int candidates[9];
+    if (!findMRVCell(grid, &row, &col, candidates, &candidateCount)) {
         return true;  /* No empty cells → puzzle is solved! */
     }
 
-    /* Step 2: Get valid candidates for the chosen cell */
-    int candidates[9];
-    int candidateCount = getCandidates(grid, row, col, candidates);
-
     /*
      * BOUNDING CONDITION: If this cell has ZERO candidates, prune immediately.
-     * This means the current state of the grid is invalid - no number can be
-     * placed here without violating Sudoku rules. There's no point exploring
-     * further down this branch.
      */
     if (candidateCount == 0) {
         recordStep(result, row, col, 0, STEP_PRUNE);
         return false;  /* Prune: dead end */
     }
 
-    /* Step 3: Try each candidate (only valid ones, not all 1-9) */
+    /* Step 3: Try each candidate (only valid ones) */
     for (int i = 0; i < candidateCount; i++) {
         int num = candidates[i];
 
@@ -393,26 +405,16 @@ static bool branchAndBoundSolve(int grid[GRID_SIZE][GRID_SIZE], SolveResult *res
         recordStep(result, row, col, num, STEP_PLACE);
 
         /*
-         * FORWARD CHECKING: After placing 'num', check if any other empty
-         * cell now has zero valid candidates. If so, this placement leads
-         * to a dead end → prune without recursing deeper.
-         *
-         * This is the key difference from plain backtracking: we detect
-         * failures BEFORE they happen instead of waiting until we reach
-         * the problematic cell.
+         * FORWARD CHECKING: Check if placing 'num' makes any other empty cell
+         * in the same row/col/box have zero candidates.
          */
-        if (forwardCheck(grid)) {
+        if (forwardCheck(grid, row, col)) {
             /* Forward check passed → recurse to solve remaining cells */
             if (branchAndBoundSolve(grid, result)) {
                 return true;  /* Solution found! */
             }
         } else {
-            /*
-             * PRUNED! Forward checking found a dead end.
-             * Record this as a prune step for visualization.
-             * Without this optimization, we would have recursed many
-             * more levels before discovering the dead end.
-             */
+            /* PRUNED! Forward checking found a dead end. */
             recordStep(result, row, col, 0, STEP_PRUNE);
         }
 
@@ -435,6 +437,11 @@ SolveResult solveWithBranchAndBound(int grid[GRID_SIZE][GRID_SIZE]) {
 
     /* Work on a copy so we don't modify the original */
     copyGrid(result.grid, grid);
+
+    if (!isGridConsistent(result.grid)) {
+        result.solved = false;
+        return result;
+    }
 
     /* Measure execution time */
     double startTime = getTimeMs();

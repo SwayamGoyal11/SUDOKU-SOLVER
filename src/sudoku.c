@@ -197,21 +197,55 @@ static bool solveFull(int grid[GRID_SIZE][GRID_SIZE]) {
 }
 
 /*
+ * countSolutions - Count how many solutions exist for the grid, up to the given limit.
+ * Stop searching once the limit is reached.
+ */
+static int countSolutions(int grid[GRID_SIZE][GRID_SIZE], int limit) {
+    if (limit <= 0) return 0;
+
+    int row = -1, col = -1;
+    for (int r = 0; r < GRID_SIZE && row == -1; r++) {
+        for (int c = 0; c < GRID_SIZE && row == -1; c++) {
+            if (grid[r][c] == EMPTY_CELL) {
+                row = r;
+                col = c;
+            }
+        }
+    }
+
+    if (row == -1) {
+        return 1;
+    }
+
+    int count = 0;
+    for (int num = 1; num <= 9; num++) {
+        if (isSafe(grid, row, col, num)) {
+            grid[row][col] = num;
+            count += countSolutions(grid, limit - count);
+            grid[row][col] = EMPTY_CELL;
+
+            if (count >= limit) {
+                break;
+            }
+        }
+    }
+    return count;
+}
+
+/*
  * generatePuzzle - Create a new random Sudoku puzzle.
  *
  * Steps:
  *   1. Clear the grid.
  *   2. Fill the three diagonal 3x3 boxes (positions 0,0 / 3,3 / 6,6).
  *      These are independent so can be filled without constraint checking.
- *   3. Solve the rest of the grid using backtracking.
+ *   3. Solve the remaining cells using backtracking.
  *   4. Save the complete grid as the "solution".
- *   5. Remove cells randomly based on difficulty level.
+ *   5. Remove cells randomly (using shuffled indices to avoid repeats)
+ *      while ensuring the puzzle still has exactly one unique solution.
  *   6. Mark remaining cells as "fixed" (given clues).
  */
 void generatePuzzle(SudokuPuzzle *p, Difficulty diff) {
-    /* Seed random number generator */
-    srand((unsigned int)time(NULL));
-
     /* Step 1: Clear the grid */
     memset(p->grid, 0, sizeof(p->grid));
 
@@ -228,15 +262,32 @@ void generatePuzzle(SudokuPuzzle *p, Difficulty diff) {
     /* Step 4: Save the complete solution */
     copyGrid(p->solution, p->grid);
 
-    /* Step 5: Remove cells based on difficulty */
+    /* Step 5: Remove cells based on difficulty, ensuring unique solution */
     int blanks = countBlanks(diff);
     int removed = 0;
-    while (removed < blanks) {
-        int r = rand() % GRID_SIZE;
-        int c = rand() % GRID_SIZE;
+
+    /* Create a list of all cell indices (0 to 80) */
+    int cells[81];
+    for (int i = 0; i < 81; i++) {
+        cells[i] = i;
+    }
+    /* Shuffle the cell indices to try removing them in random order */
+    shuffleArray(cells, 81);
+
+    for (int i = 0; i < 81 && removed < blanks; i++) {
+        int r = cells[i] / GRID_SIZE;
+        int c = cells[i] % GRID_SIZE;
+
         if (p->grid[r][c] != EMPTY_CELL) {
+            int saved = p->grid[r][c];
             p->grid[r][c] = EMPTY_CELL;
-            removed++;
+
+            /* Only keep the cell empty if the puzzle has exactly 1 solution */
+            if (countSolutions(p->grid, 2) == 1) {
+                removed++;
+            } else {
+                p->grid[r][c] = saved;
+            }
         }
     }
 

@@ -5,7 +5,7 @@
  * handles API requests for puzzle generation and solving.
  *
  * Usage:
- *   1. Compile: gcc -o sudoku src/main.c src/sudoku.c src/solver.c src/server.c src/gui_html.c -lws2_32
+ *   1. Compile: gcc -O3 -o sudoku src/main.c src/sudoku.c src/solver.c src/server.c src/gui_html.c -lws2_32
  *   2. Run: ./sudoku
  *   3. Open browser: http://localhost:8080
  *
@@ -19,10 +19,14 @@
 #include "server.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 #define DEFAULT_PORT 8080
 
 int main(int argc, char *argv[]) {
+    /* Seed random number generator once at startup */
+    srand((unsigned int)time(NULL));
+
     int port = DEFAULT_PORT;
 
     if (argc > 1) {
