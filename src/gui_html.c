@@ -177,7 +177,7 @@ const char *GUI_HTML =
 "    \n"
 "    .section-title { font-size: 0.75rem; font-weight: 700; color: hsl(var(--muted-foreground)); text-transform: uppercase; letter-spacing: 1.5px; margin-top: 8px; }\n"
 "    \n"
-"    .stats-box { background: rgba(255,255,255,0.03); border-radius: 12px; padding: 14px; border: 1px solid rgba(255,255,255,0.08); backdrop-filter: blur(6px); }\n"
+"    .stats-box { background: rgba(10, 18, 35, 0.75); border-radius: 12px; padding: 14px; border: 1px solid rgba(255,255,255,0.08); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); box-shadow: 0 4px 20px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.05); }\n"
 "    .stats-box h3 { font-size: 0.8rem; color: hsl(var(--muted-foreground)); margin-bottom: 8px; font-weight: 600; }\n"
 "    .stat-row { display: flex; justify-content: space-between; font-size: 0.8rem; padding: 3px 0; }\n"
 "    .stat-label { color: hsl(var(--muted-foreground)); } .stat-val { color: #7dd3fc; font-weight: 600; }\n"
