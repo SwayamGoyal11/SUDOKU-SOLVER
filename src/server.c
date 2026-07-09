@@ -28,6 +28,7 @@
 
 /* Embedded HTML page (declared in gui_html.h, auto-generated or included) */
 extern const char *GUI_HTML;
+extern const char *JOURNEY_HTML;
 
 /* ====================== JSON Helpers ====================== */
 
@@ -93,6 +94,9 @@ static void sendResponse(SOCKET client, int status, const char *contentType,
         "Access-Control-Allow-Origin: *\r\n"
         "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
         "Access-Control-Allow-Headers: Content-Type\r\n"
+        "Cache-Control: no-cache, no-store, must-revalidate\r\n"
+        "Pragma: no-cache\r\n"
+        "Expires: 0\r\n"
         "Connection: close\r\n"
         "\r\n",
         status, statusText, contentType, bodyLen);
@@ -262,6 +266,13 @@ void startServer(int port) {
             CLOSESOCK(client);
             continue;
         }
+
+        if (strcmp(method, "GET") == 0 && strcmp(path, "/journey") == 0) {
+            sendResponse(client, 200, "text/html; charset=utf-8", JOURNEY_HTML, (int)strlen(JOURNEY_HTML));
+            CLOSESOCK(client);
+            continue;
+        }
+
 
         /* Find body */
         char *body = strstr(buf, "\r\n\r\n");
